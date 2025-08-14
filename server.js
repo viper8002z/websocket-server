@@ -1,5 +1,6 @@
 import { WebSocketServer } from "ws";
 import http from "http";
+import { URL } from "url";
 
 const server = http.createServer((req, res) => {
   res.writeHead(200);
@@ -8,22 +9,54 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ noServer: true });
 
-const echoClients = new Set();
-const reverseClients = new Set();
+// Store clients by path and ID
+const clients = {
+  echo: new Map(),
+  reverse: new Map(),
+};
 
 wss.on("connection", (ws, request) => {
-  const path = request.url;
-  const clientsSet = path === "/echo" ? echoClients : reverseClients;
-  const otherSet = path === "/echo" ? reverseClients : echoClients;
+  const url = new URL(request.url, `http://${request.headers.host}`);
+  const path = url.pathname.slice(1); // remove leading "/"
+  const clientId = url.searchParams.get("id");
 
-  clientsSet.add(ws);
+  if (!clientId) {
+    ws.close(1008, "Missing client ID");
+    return;
+  }
+
+  if (!clients[path]) {
+    ws.close(1008, "Invalid path");
+    return;
+  }
+
+  clients[path].set(clientId, ws);
+  console.log(`Client ${clientId} connected on /${path}`);
 
   ws.on("message", (msg) => {
-    for (const c of clientsSet) if (c !== ws) c.send(msg);
-    for (const c of otherSet) c.send(msg);
+    let data;
+    try {
+      data = JSON.parse(msg);
+    } catch {
+      console.error("Invalid JSON:", msg);
+      return;
+    }
+
+    // { to: "otherClientId", message: "Hello" }
+    if (data.to && clients[path].has(data.to)) {
+      clients[path].get(data.to).send(data.message);
+    } else {
+      // Broadcast to all others on the same path
+      for (const [id, client] of clients[path]) {
+        if (client !== ws) client.send(data.message || msg);
+      }
+    }
   });
 
-  ws.on("close", () => clientsSet.delete(ws));
+  ws.on("close", () => {
+    clients[path].delete(clientId);
+    console.log(`Client ${clientId} disconnected from /${path}`);
+  });
 });
 
 server.on("upgrade", (request, socket, head) => {
