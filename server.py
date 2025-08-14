@@ -8,8 +8,8 @@ async def echo(websocket):
         print(f"Sent back to client: Server echoed: {message}")
 
 async def main():
-    async with websockets.serve(echo, "localhost", 8765):
-        print("WebSocket server started on ws://localhost:8765")
+    async with websockets.serve(echo, "localhost", 10000):
+        print("WebSocket server started on ws://localhost:10000")
         await asyncio.Future()
 
 if __name__ == "__main__":
